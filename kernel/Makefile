@@ -8,6 +8,7 @@ RUNTIME := $(BUILD)/libminemu_kernel.a
 
 CORE_OBJECT := $(BUILD)/core/main.o
 RUNTIME_OBJECTS := \
+	$(BUILD)/drivers/uart.o \
 	$(BUILD)/runtime/block.o \
 	$(BUILD)/runtime/exception.o \
 	$(BUILD)/runtime/memory.o \
@@ -72,6 +73,10 @@ $(BUILD)/runtime/%.o: src/runtime/%.c
 $(BUILD)/startup/%.o: src/startup/%.S
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(ASFLAGS) -c $< -o $@
+
+$(BUILD)/drivers/%.o: src/drivers/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 clean:
 	rm -rf $(BUILD)
