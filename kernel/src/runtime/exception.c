@@ -18,10 +18,6 @@ __attribute__((weak, noreturn)) void minemu_svc_trampoline(void) {
     minemu_fail_stop();
 }
 
-__attribute__((weak, noreturn)) void minemu_irq_trampoline(void) {
-    minemu_fail_stop();
-}
-
 __attribute__((weak)) struct minemu_trap_frame *minemu_svc_dispatch(
     struct minemu_trap_frame *frame) {
     (void)frame;
