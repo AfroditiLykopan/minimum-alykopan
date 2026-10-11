@@ -9,6 +9,7 @@
 #include "minemu/syscall.h"
 #include "minemu/trace.h"
 #include "minemu/trap.h"
+#include "minemu/debug.h"
 
 #define BOOTSTRAP_PAGE_DIRECTORY_PADDR UINT32_C(0x40010000)
 #define USER_IMAGE_BASE UINT32_C(0x00400000)
@@ -293,10 +294,10 @@ static bool user_range_ok(uint32_t vaddr, uint32_t length, bool need_write) {
 }
 
 static volatile struct minemu_uart_regs *uart_for_fd(int32_t fd, bool for_write) {
-    if (fd == MINEMU_FD_UART_OUT && for_write) {
+    if (for_write && fd == MINEMU_FD_UART_OUT) {
         return MINEMU_UART0;
     }
-    if (fd == MINEMU_FD_UART_IN && !for_write) {
+    if (!for_write && fd == MINEMU_FD_UART_IN) {
         return MINEMU_UART0;
     }
     if (fd == MINEMU_FD_UART_DIAG) {
@@ -339,7 +340,7 @@ static int32_t do_ioctl(const struct minemu_trap_frame *frame) {
         }
         return (int32_t)count;
     }
-    case MINEMU_IOCTL_UART_STATUS: {
+    case MINEMU_IOCTL_UART_STATUS:
         if (fd == MINEMU_FD_UART_IN || fd == MINEMU_FD_UART_OUT) {
             return (int32_t)MINEMU_UART0->status;
         }
@@ -347,7 +348,6 @@ static int32_t do_ioctl(const struct minemu_trap_frame *frame) {
             return (int32_t)MINEMU_UART1->status;
         }
         return MINEMU_IOCTL_ERROR;
-    }
     case MINEMU_IOCTL_RNG_SEED:
         if (fd != MINEMU_FD_RNG) {
             return MINEMU_IOCTL_ERROR;
@@ -379,11 +379,11 @@ struct minemu_trap_frame *minemu_svc_dispatch(struct minemu_trap_frame *frame) {
     uint32_t mode = frame->spsr & CPSR_MODE_MASK;
 
     if (frame->exception_id == MINEMU_EXCEPTION_SVC && mode == CPSR_MODE_USR &&
-        (frame->spsr & CPSR_THUMB) == 0U) {
-        uint32_t instruction = *(const uint32_t *)(uintptr_t)frame->fault_pc;
-        if (instruction == A32_SVC_ZERO && frame->r[7] == MINEMU_SYSCALL_IOCTL) {
-            result = do_ioctl(frame);
-        }
+        (frame->spsr & CPSR_THUMB) == 0U &&
+        user_range_ok(frame->fault_pc, 4U, false) &&
+        *(const uint32_t *)(uintptr_t)frame->fault_pc == A32_SVC_ZERO &&
+        frame->r[7] == MINEMU_SYSCALL_IOCTL) {
+        result = do_ioctl(frame);
     }
     frame->r[0] = (uint32_t)result;
     return frame;
