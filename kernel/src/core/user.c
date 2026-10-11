@@ -292,24 +292,86 @@ static bool user_range_ok(uint32_t vaddr, uint32_t length, bool need_write) {
     }
 }
 
+static volatile struct minemu_uart_regs *uart_for_fd(int32_t fd, bool for_write) {
+    if (fd == MINEMU_FD_UART_OUT && for_write) {
+        return MINEMU_UART0;
+    }
+    if (fd == MINEMU_FD_UART_IN && !for_write) {
+        return MINEMU_UART0;
+    }
+    if (fd == MINEMU_FD_UART_DIAG) {
+        return MINEMU_UART1;
+    }
+    return NULL;
+}
+
 static int32_t do_ioctl(const struct minemu_trap_frame *frame) {
     int32_t fd = (int32_t)frame->r[0];
     uint32_t request = frame->r[1];
+    uint32_t arg0 = frame->r[2];
+    uint32_t arg1 = frame->r[3];
 
-    if (request == MINEMU_IOCTL_UART_WRITE && fd == MINEMU_FD_UART_OUT) {
-        uint32_t pointer = frame->r[2];
-        uint32_t length = frame->r[3];
-        if (length == 0U || length > MINEMU_IOCTL_MAX_TRANSFER ||
-            !user_range_ok(pointer, length, false)) {
+    switch (request) {
+    case MINEMU_IOCTL_UART_WRITE: {
+        volatile struct minemu_uart_regs *uart = uart_for_fd(fd, true);
+        if (uart == NULL || arg1 == 0U || arg1 > MINEMU_IOCTL_MAX_TRANSFER ||
+            !user_range_ok(arg0, arg1, false)) {
             return MINEMU_IOCTL_ERROR;
         }
-        const uint8_t *bytes = (const uint8_t *)(uintptr_t)pointer;
-        for (uint32_t i = 0; i < length; ++i) {
-            MINEMU_UART0->tx_data = bytes[i];
+        const uint8_t *src = (const uint8_t *)(uintptr_t)arg0;
+        for (uint32_t i = 0; i < arg1; ++i) {
+            while ((uart->status & MINEMU_UART_STATUS_TX_READY) == 0U) {
+            }
+            uart->tx_data = src[i];
         }
-        return (int32_t)length;
+        return (int32_t)arg1;
     }
-    return MINEMU_IOCTL_ERROR;
+    case MINEMU_IOCTL_UART_READ: {
+        volatile struct minemu_uart_regs *uart = uart_for_fd(fd, false);
+        if (uart == NULL || arg1 == 0U || arg1 > MINEMU_IOCTL_MAX_TRANSFER ||
+            !user_range_ok(arg0, arg1, true)) {
+            return MINEMU_IOCTL_ERROR;
+        }
+        uint8_t *dst = (uint8_t *)(uintptr_t)arg0;
+        uint32_t count = 0;
+        while (count < arg1 && (uart->status & MINEMU_UART_STATUS_RX_READY) != 0U) {
+            dst[count++] = (uint8_t)uart->rx_data;
+        }
+        return (int32_t)count;
+    }
+    case MINEMU_IOCTL_UART_STATUS: {
+        if (fd == MINEMU_FD_UART_IN || fd == MINEMU_FD_UART_OUT) {
+            return (int32_t)MINEMU_UART0->status;
+        }
+        if (fd == MINEMU_FD_UART_DIAG) {
+            return (int32_t)MINEMU_UART1->status;
+        }
+        return MINEMU_IOCTL_ERROR;
+    }
+    case MINEMU_IOCTL_RNG_SEED:
+        if (fd != MINEMU_FD_RNG) {
+            return MINEMU_IOCTL_ERROR;
+        }
+        MINEMU_RNG->seed = arg0;
+        return 0;
+    case MINEMU_IOCTL_RNG_STATE:
+    case MINEMU_IOCTL_RNG_NEXT:
+        if (fd != MINEMU_FD_RNG || (arg0 & 3U) != 0U ||
+            !user_range_ok(arg0, 4U, true)) {
+            return MINEMU_IOCTL_ERROR;
+        }
+        *(uint32_t *)(uintptr_t)arg0 =
+            (request == MINEMU_IOCTL_RNG_NEXT) ? MINEMU_RNG->data : MINEMU_RNG->state;
+        return 0;
+    case MINEMU_IOCTL_TRACE_EVENT:
+        if (fd != MINEMU_FD_TRACE) {
+            return MINEMU_IOCTL_ERROR;
+        }
+        minemu_trace_event(arg0);
+        return 0;
+    default:
+        return MINEMU_IOCTL_ERROR;
+    }
 }
 
 struct minemu_trap_frame *minemu_svc_dispatch(struct minemu_trap_frame *frame) {
