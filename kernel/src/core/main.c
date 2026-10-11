@@ -5,6 +5,8 @@
 #include "minemu/irq.h"
 #include "minemu/msh.h"
 
+void minemu_start_user(const struct minemu_boot_info *boot_info);
+
 void minemu_kernel_main(const struct minemu_boot_info *boot_info) {
     if ((uintptr_t)boot_info != MINEMU_BOOT_INFO_VADDR ||
         boot_info->magic != MINEMU_BOOT_INFO_MAGIC ||
@@ -17,10 +19,5 @@ void minemu_kernel_main(const struct minemu_boot_info *boot_info) {
         minemu_trace_event(UINT32_C(0xb007bad0));
         minemu_fail_stop();
     }
-    uart_puts("hello world\n");
-    uart_init();
-    minemu_irq_enable();
-    msh_run();
-    minemu_trace_event(1);
-    minemu_fail_stop();
+    minemu_start_user(boot_info);
 }
